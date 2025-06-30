@@ -1,6 +1,7 @@
 use serde_derive::{Serialize, Deserialize};
 use serde_bencode::{self, from_bytes};
 use serde;
+use sha1::{Digest, Sha1};
 use std::{any::{self, Any}, fs, string};
 use std::collections::HashMap;
 use chrono::{NaiveDate, DateTime, Utc};
@@ -30,6 +31,7 @@ struct  Info {
     #[serde(rename = "piece length")]
     piece_length: u64,
     files: Option<Vec<FileInfo>>,
+    lengt: Option<u64>
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -39,9 +41,22 @@ struct FileInfo {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let file_path = "Malena.torrent";
-    let torrent_info: Torrent = serde_bencode::from_bytes(&fs::read(file_path)?).map_err(|e| format!("there was an error parsing the torrent"))?;
-
-    println!("torrent info: {:?}", torrent_info);
+    let torrent = parse_torrent("Seven Samurai.torrent");
+    let info_hash = compute_info_hash(torrent.unwrap().info)?;
+    println!("info hash: {:?}", info_hash);
+    println!("info hash hex: {:?}", hex::encode(info_hash));    
     Ok(())
+}
+
+fn parse_torrent(path: &str) -> Result<Torrent, Box<dyn Error>> {
+    let content = fs::read(path).map_err(|e| format!("failed to read torrent file '{}': '{}'", path, e))?;
+    let torrent: Torrent = serde_bencode::from_bytes(&content).map_err(|e| format!("there was an error parsing the torrent"))?;
+    Ok(torrent)
+}
+
+fn compute_info_hash(info: Info) -> Result<([u8; 20]), Box<dyn Error>> {
+    let info_bytes = serde_bencode::to_bytes(&info).map_err(|e| format!("failed to serialize info dictionary: {}", e))?;
+    let mut hasher = Sha1::new();
+    hasher.update(&info_bytes);
+    Ok(hasher.finalize().into())
 }
