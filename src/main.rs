@@ -1,3 +1,5 @@
+use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
+use reqwest::Url;
 use serde_derive::{Serialize, Deserialize};
 use serde_bencode::{self, from_bytes};
 use serde;
@@ -26,12 +28,13 @@ struct Torrent {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct  Info {
     name: String,
-    // #[serde(with = "serde_bytes")]
-    // pieces: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pieces: Vec<u8>,
     #[serde(rename = "piece length")]
     piece_length: u64,
     files: Option<Vec<FileInfo>>,
-    lengt: Option<u64>
+    length: Option<u64>,
+    private: Option<u8>
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -42,9 +45,12 @@ struct FileInfo {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let torrent = parse_torrent("Seven Samurai.torrent");
-    let info_hash = compute_info_hash(torrent.unwrap().info)?;
-    println!("info hash: {:?}", info_hash);
-    println!("info hash hex: {:?}", hex::encode(info_hash));    
+    let torrent = torrent?;
+    let info_hash = compute_info_hash(torrent.info)?;
+    // println!("info hash: {:?}", info_hash);
+    // println!("info hash hex: {:?}", hex::encode(info_hash));
+    let peer_id = "-RS0001-123456789012";
+    println!("tracker url: {:?}", build_tracker_url(&torrent.announce.as_ref().unwrap(), &info_hash, peer_id, "8894".parse::<u16>()?, 500, 500, 500, 1, Some("started")));
     Ok(())
 }
 
@@ -59,4 +65,19 @@ fn compute_info_hash(info: Info) -> Result<([u8; 20]), Box<dyn Error>> {
     let mut hasher = Sha1::new();
     hasher.update(&info_bytes);
     Ok(hasher.finalize().into())
+}
+
+fn build_tracker_url(announce: &str, info_hash: &[u8; 20], peer_id: &str, port: u16, left: u64, uploaded: u64, downloaded: u64, compact: u8, event: Option<&str>) -> Result<String, Box<dyn Error>> {
+    let mut url = Url::parse(announce)?;
+    let encoded_hash = percent_encode(info_hash, NON_ALPHANUMERIC).to_string();
+    url.query_pairs_mut()
+        .append_pair("info_hash", &encoded_hash)
+        .append_pair("peer_id", peer_id)
+        .append_pair("port", port.to_string().as_str())
+        .append_pair("left", left.to_string().as_str())
+        .append_pair("uploaded", uploaded.to_string().as_str())
+        .append_pair("downloaded", downloaded.to_string().as_str())
+        .append_pair("compact", compact.to_string().as_str());
+
+    Ok(url.to_string())
 }
