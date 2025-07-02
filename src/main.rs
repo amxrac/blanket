@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use chrono::{NaiveDate, DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use std::error::Error;
+use rand::prelude::*;
 
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -49,7 +50,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let info_hash = compute_info_hash(torrent.info)?;
     // println!("info hash: {:?}", info_hash);
     // println!("info hash hex: {:?}", hex::encode(info_hash));
-    let peer_id = "-RS0001-123456789012";
+    let mut rng  = rand::rng();
+    let rand_ = rng.random_range(100_000_000_000u64..=999_999_999_999u64).to_string();
+    let mut peer_id = String::from("-RS0001-");
+    peer_id.push_str(&rand_);
+    let peer_id: &str = &peer_id;
     println!("tracker url: {:?}", build_tracker_url(&torrent.announce.as_ref().unwrap(), &info_hash, peer_id, "8894".parse::<u16>()?, 500, 500, 500, 1, Some("started")));
     Ok(())
 }
