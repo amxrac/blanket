@@ -10,6 +10,7 @@ use chrono::{NaiveDate, DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use std::error::Error;
 use rand::prelude::*;
+// use tokio;
 
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -26,11 +27,11 @@ struct Torrent {
 }
 
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 struct  Info {
     name: String,
-    #[serde(with = "serde_bytes")]
-    pieces: Vec<u8>,
+    // #[serde(with = "serde_bytes")]
+    // pieces: Vec<u8>,
     #[serde(rename = "piece length")]
     piece_length: u64,
     files: Option<Vec<FileInfo>>,
@@ -38,24 +39,28 @@ struct  Info {
     private: Option<u8>
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+impl Info {
+    pub fn total_length(&self) -> u64 {
+        if let Some(len) = self.length {
+            len
+        } else if let Some(files) = &self.files {
+            files.iter().map(|f| f.length).sum()
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 struct FileInfo {
     path: Vec<String>,
     length: u64
 }
 
+// #[tokio::main]
 fn main() -> Result<(), Box<dyn Error>> {
-    let torrent = parse_torrent("Seven Samurai.torrent");
-    let torrent = torrent?;
-    let info_hash = compute_info_hash(torrent.info)?;
-    // println!("info hash: {:?}", info_hash);
-    // println!("info hash hex: {:?}", hex::encode(info_hash));
-    let mut rng  = rand::rng();
-    let rand_ = rng.random_range(100_000_000_000u64..=999_999_999_999u64).to_string();
-    let mut peer_id = String::from("-RS0001-");
-    peer_id.push_str(&rand_);
-    let peer_id: &str = &peer_id;
-    println!("tracker url: {:?}", build_tracker_url(&torrent.announce.as_ref().unwrap(), &info_hash, peer_id, "8894".parse::<u16>()?, 500, 500, 500, 1, Some("started")));
+    // get_tracker_response().await?;
+    get_tracker_response()?;
     Ok(())
 }
 
@@ -72,17 +77,45 @@ fn compute_info_hash(info: Info) -> Result<([u8; 20]), Box<dyn Error>> {
     Ok(hasher.finalize().into())
 }
 
-fn build_tracker_url(announce: &str, info_hash: &[u8; 20], peer_id: &str, port: u16, left: u64, uploaded: u64, downloaded: u64, compact: u8, event: Option<&str>) -> Result<String, Box<dyn Error>> {
+fn build_tracker_url(announce: &str, info_hash: &[u8; 20], peer_id: String, port: u16, left: u64, uploaded: u64, downloaded: u64, compact: u8, event: Option<&str>) -> Result<String, Box<dyn Error>> {
+    // if let Some(announce_list)
     let mut url = Url::parse(announce)?;
-    let encoded_hash = percent_encode(info_hash, NON_ALPHANUMERIC).to_string();
-    url.query_pairs_mut()
-        .append_pair("info_hash", &encoded_hash)
-        .append_pair("peer_id", peer_id)
-        .append_pair("port", port.to_string().as_str())
-        .append_pair("left", left.to_string().as_str())
-        .append_pair("uploaded", uploaded.to_string().as_str())
-        .append_pair("downloaded", downloaded.to_string().as_str())
-        .append_pair("compact", compact.to_string().as_str());
+    let encoded_hash = percent_encode(
+        info_hash, NON_ALPHANUMERIC).to_string();
+    {
+        let mut query = url.query_pairs_mut();
+
+        query
+            .append_pair("info_hash", &encoded_hash)
+            .append_pair("peer_id",&peer_id)
+            .append_pair("port", &port.to_string())
+            .append_pair("left", &left.to_string())
+            .append_pair("uploaded", &uploaded.to_string())
+            .append_pair("downloaded", &downloaded.to_string())
+            .append_pair("compact", &compact.to_string());
+
+        if let Some(event) = event {
+            query.append_pair("event", event);
+        }
+    }
 
     Ok(url.to_string())
+}
+
+fn get_tracker_response() -> Result<String, Box<dyn Error>> {
+    let torrent = parse_torrent("Seven Samurai.torrent")?;
+    let info_hash = compute_info_hash(torrent.info.clone())?;
+
+    let mut rng  = rand::rng();
+    let rand_ = rng.random_range(100_000_000_000u64..=999_999_999_999u64);
+    let peer_id = format!("-RS0001-{:012}", rand_);
+    assert_eq!(peer_id.len(), 20);
+
+    let left = torrent.info.total_length();
+    let tracker_url = build_tracker_url(&torrent.announce.as_ref().unwrap(), &info_hash, peer_id, 6881u16, left, 0, 0, 1, Some("started"))?;
+
+    // let response = reqwest::get(tracker_url).await?.text().await?;
+
+    println!("tracker url: {:?}", torrent);
+    Ok(tracker_url)
 }
